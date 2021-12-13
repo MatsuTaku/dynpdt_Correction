@@ -29,6 +29,9 @@
 #include "compact_vector.hpp"
 #include "hash.hpp"
 
+#include <queue>
+#include <algorithm>
+
 namespace poplar {
 
 template <uint32_t MaxFactor = 90, typename Hasher = hash::vigna_hasher>
@@ -221,6 +224,242 @@ class plain_bonsai_trie {
         std::swap(*this, new_ht);
 
         return node_map;
+    }
+
+    // 追加
+    // トポロジカルソートを求めるときに情報を記憶しておく型
+    struct info_fp {
+        uint64_t match; // 分岐位置
+        uint64_t cnt; // 分岐位置以降の葉の数
+        std::vector<uint64_t> children; // 子の集合
+
+        info_fp() : match(0), cnt(0) {}
+
+        info_fp(uint64_t m, uint64_t c) : match(m), cnt(c) {}
+    };
+
+    // cpを求めるための関数
+    template <class CP, class CL, class FP>
+    void find_centrpod_path(CP& cp, const CL& cl, FP& fp, uint64_t node_id) {
+        if(fp[node_id].size() == 0) { // 一番まで、たどり着いた時の処理
+            // cp.push_back(node_id);
+            return;
+        }
+
+        // lambda関数の定義(shelterの中身を求めるための関数)
+        // auto get_shelter = [&](uint64_t pos) { // posはfp[][pos]に対応
+        //     std::vector<std::pair<uint64_t, uint64_t>> shelter;
+        //     for(uint64_t i=0; i < fp[node_id][pos].children.size(); i++) {
+        //         uint64_t next_node_id = fp[node_id][pos].children[i];
+        //         shelter.push_back({next_node_id, cl[next_node_id]});
+        //     }
+        //     std::sort(shelter.begin(), shelter.end(), [] (auto l, auto r) { // 葉が多い順にソート
+        //         return l.second > r.second;
+        //     });
+        //     return shelter;
+        // };
+
+        bool check_zero = false;
+        if(fp[node_id][0].match == 0) check_zero = true;
+
+        // 0分岐とそれ以外の個数を比べて，多い方から順に処理する
+        if(check_zero) { // 0分岐がある時
+            uint64_t sum = 0;
+            std::sort(fp[node_id].begin()+1, fp[node_id].end(), [] (auto l, auto r) {
+                return l.cnt > r.cnt;
+            });
+            for(uint64_t i=1; i < fp[node_id].size(); i++) {
+                sum += fp[node_id][i].cnt;
+            }
+            if(fp[node_id][0].cnt > sum) { // 最初に0分岐を処理する
+                // それぞれの子を持ってくる、その中から、cntが多い順に処理する
+                std::vector<std::pair<uint64_t, uint64_t>> shelter;
+                for(uint64_t i=0; i < fp[node_id][0].children.size(); i++) {
+                    uint64_t next_node_id = fp[node_id][0].children[i];
+                    shelter.push_back({next_node_id, cl[next_node_id]});
+                }
+                std::sort(shelter.begin(), shelter.end(), [] (auto l, auto r) {
+                    return l.second > r.second;
+                });
+                // auto shelter = get_shelter(0);
+                for(auto s : shelter) {
+                    find_centrpod_path(cp, cl, fp, s.first);
+                    cp.push_back(s.first);
+                }
+
+                // 1分岐以上の処理
+                for(uint64_t i=1; i < fp[node_id].size(); i++) {
+                    shelter.clear();
+                    for(uint64_t j=0; j < fp[node_id][i].children.size(); j++) {
+                        uint64_t next_node_id = fp[node_id][i].children[j];
+                        shelter.push_back({next_node_id, cl[next_node_id]});
+                    }
+                    std::sort(shelter.begin(), shelter.end(), [] (auto l, auto r) {
+                        return l.second > r.second;
+                    });
+                    // shelter = get_shelter(i);
+                    for(auto s : shelter) {
+                        find_centrpod_path(cp, cl, fp, s.first);
+                        cp.push_back(s.first);
+                    }
+                }
+            } else { // 最後に0分岐を処理する
+                // 1分岐以上の処理
+                std::vector<std::pair<uint64_t, uint64_t>> shelter;
+                for(uint64_t i=1; i < fp[node_id].size(); i++) {
+                    shelter.clear();
+                    for(uint64_t j=0; j < fp[node_id][i].children.size(); j++) {
+                        uint64_t next_node_id = fp[node_id][i].children[j];
+                        shelter.push_back({next_node_id, cl[next_node_id]});
+                    }
+                    std::sort(shelter.begin(), shelter.end(), [] (auto l, auto r) {
+                        return l.second > r.second;
+                    });
+                    // auto shelter = get_shelter(i);
+                    for(auto s : shelter) {
+                        find_centrpod_path(cp, cl, fp, s.first);
+                        cp.push_back(s.first);
+                    }
+                }
+
+                // 0分岐の処理
+                shelter.clear();
+                for(uint64_t i=0; i < fp[node_id][0].children.size(); i++) {
+                    uint64_t next_node_id = fp[node_id][0].children[i];
+                    shelter.push_back({next_node_id, cl[next_node_id]});
+                }
+                std::sort(shelter.begin(), shelter.end(), [] (auto l, auto r) {
+                    return l.second > r.second;
+                });
+                // shelter = get_shelter(0);
+                for(auto s : shelter) {
+                    find_centrpod_path(cp, cl, fp, s.first);
+                    cp.push_back(s.first);
+                }
+            }
+        } else { // 0分岐がないとき
+            std::sort(fp[node_id].begin(), fp[node_id].end(), [] (auto l, auto r) {
+                return l.cnt > r.cnt;
+            });
+            std::vector<std::pair<uint64_t, uint64_t>> shelter;
+            for(uint64_t i=0; i < fp[node_id].size(); i++) {
+                shelter.clear();
+                for(uint64_t j=0; j < fp[node_id][i].children.size(); j++) {
+                    uint64_t next_node_id = fp[node_id][i].children[j];
+                    shelter.push_back({next_node_id, cl[next_node_id]});
+                }
+                std::sort(shelter.begin(), shelter.end(), [] (auto l, auto r) {
+                    return l.second > r.second;
+                });
+                // auto shelter = get_shelter(i);
+                for(auto s : shelter) {
+                    find_centrpod_path(cp, cl, fp, s.first);
+                    cp.push_back(s.first);
+                }
+            }
+        }
+        if(node_id == get_root()) cp.push_back(node_id);
+    }
+
+    // 追加
+    // トポロジカルソートで求める
+    template <typename C>
+    void calc_topo(const C& restore_codes_) {
+        std::cout << "--- calc_topo ---" << std::endl;
+        uint64_t table_size = table_.size();
+        std::cout << "table_size : " << table_size << std::endl;
+        std::vector<std::pair<uint64_t, uint64_t>> parent(table_size); // 親の位置を保存するための配列(位置、分岐位置)
+        std::vector<uint64_t> partial_num(table_size, 0); // 子の数を格納するための配列(自身の数も含む)
+        
+        std::vector<std::vector<info_fp>> fork_pos(table_size);// std::vector<std::vector<std::pair<uint64_t, uint64_t>>> fork_pos(table_size); // それぞれの分岐位置で個数を求めるためのもの(分岐位置)
+        std::vector<uint64_t> cnt_leaf(table_size, 0); // それぞれのノードから繋がっている葉ノードの数をカウント
+
+        // O(n)で、親の位置、子の数(ノード番号も)を数える
+        for(uint64_t i=0; i < table_size; i++) {
+            if(table_[i] != 0) {
+                auto [p, label] = get_parent_and_symb(i); // 親と遷移情報の取得
+                auto [c, match] = std::pair{uint8_t(restore_codes_[label % 256]), label/256}; // 遷移文字と分岐位置を取得
+                partial_num[i] += 1; // 自身の数をカウントする
+                partial_num[p] += 1; // 子から親の数をカウントする
+                parent[i].first = p;
+                parent[i].second = match;
+            }
+        }
+
+        // queueを使用して、一番下のものから処理していく(CPを求める)
+        std::queue<uint64_t> que;
+        // 対象のデータを集めてくる
+        for(uint64_t i=0; i < table_size; i++) {
+            if(partial_num[i] == 1) que.push(i);
+        }
+        // 数を数える
+        uint64_t loop_cnt = 0;
+        while(!que.empty()) { // 追加された順に処理
+            uint64_t q = que.front();
+            que.pop();
+            cnt_leaf[q] += 1;
+            auto [node_id, match] = parent[q];
+            uint64_t p = node_id;
+            cnt_leaf[p] += cnt_leaf[q];
+            // fork_posに対して、分岐の位置に対して、葉がいくつあるのかをカウント
+            bool flag = false;
+            for(uint64_t j=0; j < fork_pos[p].size(); j++) {
+                if(fork_pos[p][j].match == match) {
+                    flag = true;
+                    fork_pos[p][j].cnt += cnt_leaf[q];
+                    fork_pos[p][j].children.push_back(q);
+                    break;
+                } else if(fork_pos[p][j].match > match) {
+                    break;
+                }
+            }
+            if(!flag) {
+                uint64_t pos = fork_pos[p].size();
+                fork_pos[p].push_back(info_fp{match, cnt_leaf[q]});
+                fork_pos[p][pos].children.push_back(q);
+                while(1) {
+                    if(pos == 0) break;
+                    if(fork_pos[p][pos].match < fork_pos[p][pos-1].match) {
+                        // 入れ替え
+                        auto tmp = fork_pos[p][pos];
+                        fork_pos[p][pos] = fork_pos[p][pos-1];
+                        fork_pos[p][pos-1] = tmp;
+                        pos--;
+                    } else {
+                        break;
+                    }
+                }
+            }
+
+            partial_num[p]--;
+            if(partial_num[p] == 1) { // 子供の処理がすべて終了すると追加
+                que.push(p);
+            }
+            loop_cnt++;
+        }
+        std::cout << "loop_cnt : " << loop_cnt << std::endl;
+        std::cout << "cnt_leaf(get_root) : " << cnt_leaf[get_root()] << std::endl;
+
+        // Centroid Pathを求める
+        // とりあえず大きい順に配列に格納してみる
+        std::vector<uint64_t> cp_order;
+        find_centrpod_path(cp_order, cnt_leaf, fork_pos, get_root());
+        std::cout << "cp_order_size : " << cp_order.size() << std::endl;
+
+        // uint64_t cnt = 0;
+        // for(uint64_t i=0; i < table_size; i++) {
+        //     if(parent[i].first != 0) cnt++;
+        // }
+        // std::cout << "cnt : " << cnt << std::endl;
+
+        // std::cout << "root_num : " << fork_pos[get_root()].size() << std::endl;
+        // for(auto p : fork_pos[get_root()]) {
+        //     std::cout << p.match << ", " << p.cnt;
+        //     // for(auto c : p.children) {
+        //     //     std::cout << ", " << c;
+        //     // }
+        //     std::cout << std::endl;
+        // }
     }
 
     // # of registerd nodes

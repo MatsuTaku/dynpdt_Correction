@@ -34,15 +34,6 @@
 
 namespace {
 
-using value_type = int;
-
-// 比較した際の深度を表示
-void show_hist(const std::map<int, int>& mp) {
-    for(auto p : mp) {
-        std::cout << p.first << ", " << p.second << std::endl;
-    }
-}
-
 class Stopwatch {
   using hrc = std::chrono::high_resolution_clock;
   hrc::time_point start_;
@@ -175,6 +166,10 @@ int main() {
         int* ptr = map.update(keys[i]);
         *ptr = 1;
     }
+
+    // 追加
+    // ここで呼び出す
+    map.call_topo();
 
     auto time = sw.get_milli_sec();
     std::cout << "----------------------" << std::endl;

@@ -167,6 +167,7 @@ class map {
 
             if (codes_[*key.begin] == UINT8_MAX) {
                 // Update table
+                restore_codes_[num_codes_] = *key.begin; // 追加
                 codes_[*key.begin] = static_cast<uint8_t>(num_codes_++);
                 POPLAR_THROW_IF(UINT8_MAX == num_codes_, "");
             }
@@ -218,6 +219,12 @@ class map {
         return bytes;
     }
 
+    // 追加
+    // plain_bonsai_trieないから、calc_topoを呼び出す
+    void call_topo() {
+        hash_trie_.calc_topo(restore_codes_);
+    }
+
     void show_stats(std::ostream& os, int n = 0) const {
         auto indent = get_indent(n);
         show_stat(os, indent, "name", "map");
@@ -249,6 +256,7 @@ class map {
     Trie hash_trie_;
     NLM label_store_;
     std::array<uint8_t, 256> codes_ = {};
+    std::array<uint8_t, 256> restore_codes_ = {}; // 追加
     uint32_t num_codes_ = 0;
     uint64_t size_ = 0;
 #ifdef POPLAR_EXTRA_STATS
