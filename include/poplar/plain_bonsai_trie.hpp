@@ -231,7 +231,7 @@ class plain_bonsai_trie {
     struct info_fp {
         uint64_t match; // 分岐位置
         uint64_t cnt; // 分岐位置以降の葉の数
-        std::vector<uint64_t> children; // 子の集合
+        std::vector<std::pair<uint64_t, uint64_t>> children; // 子の集合(左：next_id ，右：next_idの葉の数)
 
         info_fp() : match(0), cnt(0) {}
 
@@ -239,8 +239,8 @@ class plain_bonsai_trie {
     };
 
     // cpを求めるための関数
-    template <class CP, class CL, class FP>
-    void find_centrpod_path(CP& cp, const CL& cl, FP& fp, uint64_t node_id) {
+    template <class CP, class FP, class AB>
+    void find_centrpod_path(CP& cp, FP& fp, uint64_t node_id, const AB& all_branch) {
         if(fp[node_id].size() == 0) { // 一番まで、たどり着いた時の処理
             // cp.push_back(node_id);
             return;
@@ -262,44 +262,28 @@ class plain_bonsai_trie {
         bool check_zero = false;
         if(fp[node_id][0].match == 0) check_zero = true;
 
-        // 0分岐とそれ以外の個数を比べて，多い方から順に処理する
+        // 0分岐とそれ以外の個数を比べる
         if(check_zero) { // 0分岐がある時
-            uint64_t sum = 0;
             std::sort(fp[node_id].begin()+1, fp[node_id].end(), [] (auto l, auto r) {
                 return l.cnt > r.cnt;
             });
-            for(uint64_t i=1; i < fp[node_id].size(); i++) {
-                sum += fp[node_id][i].cnt;
-            }
-            if(fp[node_id][0].cnt > sum) { // 最初に0分岐を処理する
+            if(fp[node_id][0].cnt > all_branch[node_id]) {
                 // それぞれの子を持ってくる、その中から、cntが多い順に処理する
-                std::vector<std::pair<uint64_t, uint64_t>> shelter;
-                for(uint64_t i=0; i < fp[node_id][0].children.size(); i++) {
-                    uint64_t next_node_id = fp[node_id][0].children[i];
-                    shelter.push_back({next_node_id, cl[next_node_id]});
-                }
-                std::sort(shelter.begin(), shelter.end(), [] (auto l, auto r) {
+                std::sort(fp[node_id][0].children.begin(), fp[node_id][0].children.end(), [] (auto l, auto r) {
                     return l.second > r.second;
                 });
-                // auto shelter = get_shelter(0);
-                for(auto s : shelter) {
-                    find_centrpod_path(cp, cl, fp, s.first);
+                for(auto s : fp[node_id][0].children) {
+                    find_centrpod_path(cp, fp, s.first, all_branch);
                     cp.push_back(s.first);
                 }
 
                 // 1分岐以上の処理
                 for(uint64_t i=1; i < fp[node_id].size(); i++) {
-                    shelter.clear();
-                    for(uint64_t j=0; j < fp[node_id][i].children.size(); j++) {
-                        uint64_t next_node_id = fp[node_id][i].children[j];
-                        shelter.push_back({next_node_id, cl[next_node_id]});
-                    }
-                    std::sort(shelter.begin(), shelter.end(), [] (auto l, auto r) {
+                    std::sort(fp[node_id][i].children.begin(), fp[node_id][i].children.end(), [] (auto l, auto r) {
                         return l.second > r.second;
                     });
-                    // shelter = get_shelter(i);
-                    for(auto s : shelter) {
-                        find_centrpod_path(cp, cl, fp, s.first);
+                    for(auto s : fp[node_id][i].children) {
+                        find_centrpod_path(cp, fp, s.first, all_branch);
                         cp.push_back(s.first);
                     }
                 }
@@ -307,33 +291,21 @@ class plain_bonsai_trie {
                 // 1分岐以上の処理
                 std::vector<std::pair<uint64_t, uint64_t>> shelter;
                 for(uint64_t i=1; i < fp[node_id].size(); i++) {
-                    shelter.clear();
-                    for(uint64_t j=0; j < fp[node_id][i].children.size(); j++) {
-                        uint64_t next_node_id = fp[node_id][i].children[j];
-                        shelter.push_back({next_node_id, cl[next_node_id]});
-                    }
-                    std::sort(shelter.begin(), shelter.end(), [] (auto l, auto r) {
+                    std::sort(fp[node_id][i].children.begin(), fp[node_id][i].children.end(), [] (auto l, auto r) {
                         return l.second > r.second;
                     });
-                    // auto shelter = get_shelter(i);
-                    for(auto s : shelter) {
-                        find_centrpod_path(cp, cl, fp, s.first);
+                    for(auto s : fp[node_id][i].children) {
+                        find_centrpod_path(cp, fp, s.first, all_branch);
                         cp.push_back(s.first);
                     }
                 }
 
                 // 0分岐の処理
-                shelter.clear();
-                for(uint64_t i=0; i < fp[node_id][0].children.size(); i++) {
-                    uint64_t next_node_id = fp[node_id][0].children[i];
-                    shelter.push_back({next_node_id, cl[next_node_id]});
-                }
-                std::sort(shelter.begin(), shelter.end(), [] (auto l, auto r) {
+                std::sort(fp[node_id][0].children.begin(), fp[node_id][0].children.end(), [] (auto l, auto r) {
                     return l.second > r.second;
                 });
-                // shelter = get_shelter(0);
-                for(auto s : shelter) {
-                    find_centrpod_path(cp, cl, fp, s.first);
+                for(auto s : fp[node_id][0].children) {
+                    find_centrpod_path(cp, fp, s.first, all_branch);
                     cp.push_back(s.first);
                 }
             }
@@ -341,28 +313,44 @@ class plain_bonsai_trie {
             std::sort(fp[node_id].begin(), fp[node_id].end(), [] (auto l, auto r) {
                 return l.cnt > r.cnt;
             });
-            std::vector<std::pair<uint64_t, uint64_t>> shelter;
+            // std::vector<std::pair<uint64_t, uint64_t>> shelter;
             for(uint64_t i=0; i < fp[node_id].size(); i++) {
-                shelter.clear();
-                for(uint64_t j=0; j < fp[node_id][i].children.size(); j++) {
-                    uint64_t next_node_id = fp[node_id][i].children[j];
-                    shelter.push_back({next_node_id, cl[next_node_id]});
-                }
-                std::sort(shelter.begin(), shelter.end(), [] (auto l, auto r) {
+                std::sort(fp[node_id][i].children.begin(), fp[node_id][i].children.end(), [] (auto l, auto r) {
                     return l.second > r.second;
                 });
-                // auto shelter = get_shelter(i);
-                for(auto s : shelter) {
-                    find_centrpod_path(cp, cl, fp, s.first);
+                for(auto s : fp[node_id][i].children) {
+                    find_centrpod_path(cp, fp, s.first, all_branch);
                     cp.push_back(s.first);
                 }
             }
         }
+        // cp.push_back(node_id);
         if(node_id == get_root()) cp.push_back(node_id);
     }
 
+    // 二分探索の実装(lower_bound)
+    template<class Data>
+    std::pair<bool, uint64_t> BinarySearch(const Data& data, uint64_t match) {
+        uint64_t size = data.size();
+        if(size == 0) return {false, 0};
+        int64_t left = 0;
+        int64_t right = size - 1;
+        int64_t mid;
+        while(left <= right) {
+            mid = (left + right) / 2;
+            if(data[mid].match == match) {
+                return {true, mid};
+            } else if(data[mid].match > match) {
+                right = mid - 1;
+            } else {
+                left = mid + 1;
+            }
+        }
+        return {false, uint64_t(left)};
+    }
+
     // 追加
-    // トポロジカルソートで求める
+    // トポロジカルソートを求める
     template <typename C>
     void calc_topo(const C& restore_codes_) {
         std::cout << "--- calc_topo ---" << std::endl;
@@ -373,6 +361,7 @@ class plain_bonsai_trie {
         
         std::vector<std::vector<info_fp>> fork_pos(table_size);// std::vector<std::vector<std::pair<uint64_t, uint64_t>>> fork_pos(table_size); // それぞれの分岐位置で個数を求めるためのもの(分岐位置)
         std::vector<uint64_t> cnt_leaf(table_size, 0); // それぞれのノードから繋がっている葉ノードの数をカウント
+        std::vector<uint64_t> all_branch(table_size, 0);
 
         // O(n)で、親の位置、子の数(ノード番号も)を数える
         for(uint64_t i=0; i < table_size; i++) {
@@ -401,34 +390,16 @@ class plain_bonsai_trie {
             auto [node_id, match] = parent[q];
             uint64_t p = node_id;
             cnt_leaf[p] += cnt_leaf[q];
+            if(match != 0) all_branch[p] += cnt_leaf[q];
             // fork_posに対して、分岐の位置に対して、葉がいくつあるのかをカウント
-            bool flag = false;
-            for(uint64_t j=0; j < fork_pos[p].size(); j++) {
-                if(fork_pos[p][j].match == match) {
-                    flag = true;
-                    fork_pos[p][j].cnt += cnt_leaf[q];
-                    fork_pos[p][j].children.push_back(q);
-                    break;
-                } else if(fork_pos[p][j].match > match) {
-                    break;
-                }
-            }
-            if(!flag) {
-                uint64_t pos = fork_pos[p].size();
-                fork_pos[p].push_back(info_fp{match, cnt_leaf[q]});
-                fork_pos[p][pos].children.push_back(q);
-                while(1) {
-                    if(pos == 0) break;
-                    if(fork_pos[p][pos].match < fork_pos[p][pos-1].match) {
-                        // 入れ替え
-                        auto tmp = fork_pos[p][pos];
-                        fork_pos[p][pos] = fork_pos[p][pos-1];
-                        fork_pos[p][pos-1] = tmp;
-                        pos--;
-                    } else {
-                        break;
-                    }
-                }
+            // ソートした状態を保つために、このような処理をしている
+            auto [flag, pos] = BinarySearch(fork_pos[p], match);
+            if(flag) { // 同じ分岐位置のモノが既に存在していた場合
+                fork_pos[p][pos].cnt += cnt_leaf[q];
+                fork_pos[p][pos].children.push_back({q, cnt_leaf[q]});
+            } else {
+                fork_pos[p].insert(fork_pos[p].begin()+pos, info_fp{match, cnt_leaf[q]});
+                fork_pos[p][pos].children.push_back({q, cnt_leaf[q]});
             }
 
             partial_num[p]--;
@@ -441,25 +412,11 @@ class plain_bonsai_trie {
         std::cout << "cnt_leaf(get_root) : " << cnt_leaf[get_root()] << std::endl;
 
         // Centroid Pathを求める
+        // 大きい要素から順に処理する
         // とりあえず大きい順に配列に格納してみる
         std::vector<uint64_t> cp_order;
-        find_centrpod_path(cp_order, cnt_leaf, fork_pos, get_root());
+        find_centrpod_path(cp_order, fork_pos, get_root(), all_branch);
         std::cout << "cp_order_size : " << cp_order.size() << std::endl;
-
-        // uint64_t cnt = 0;
-        // for(uint64_t i=0; i < table_size; i++) {
-        //     if(parent[i].first != 0) cnt++;
-        // }
-        // std::cout << "cnt : " << cnt << std::endl;
-
-        // std::cout << "root_num : " << fork_pos[get_root()].size() << std::endl;
-        // for(auto p : fork_pos[get_root()]) {
-        //     std::cout << p.match << ", " << p.cnt;
-        //     // for(auto c : p.children) {
-        //     //     std::cout << ", " << c;
-        //     // }
-        //     std::cout << std::endl;
-        // }
     }
 
     // # of registerd nodes
