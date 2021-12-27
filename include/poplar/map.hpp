@@ -195,6 +195,71 @@ class map {
         return vptr ? const_cast<value_type*>(vptr) : nullptr;
     }
 
+    value_type* update_new(char_range key, uint64_t node_id, uint64_t first_match) {
+        // std::cout << "--- update_new ---" << std::endl;
+        if(!hash_trie_.checK_first_insert()) {
+            hash_trie_.set_first_insert(true);
+            if constexpr (trie_type_id == trie_type_ids::BONSAI_TRIE) {
+                //std::cout << "length : " << key.length() << ", " << key.empty() << std::endl;
+                return label_store_.insert_new_table(hash_trie_.get_root(), key); // ルートから出ている
+            }
+            // should not come
+            assert(false);
+        }
+        
+        // 2つ目以降のキー追加の際の処理
+        // auto [vptr, match] = label_store_.compare_new_ptrs(node_id, key, first_match);
+        // if(vptr == nullptr) return const_cast<value_type*>(vptr);
+        bool first_check = true;
+        while(!key.empty()) {
+            uint64_t match;
+            if(first_check) {
+                auto [vptr, match_tmp] = label_store_.compare_new_ptrs(node_id, key, first_match);
+                if(vptr != nullptr) return const_cast<value_type*>(vptr);
+                match = match_tmp;
+                first_check = false;
+            } else {
+                auto [vptr, match_tmp] = label_store_.compare_new_ptrs(node_id, key, 0);
+                if(vptr != nullptr) return const_cast<value_type*>(vptr);
+                match = match_tmp;
+            }
+            
+            key.begin += match;
+            while(lambda_ <= match) {
+                if (hash_trie_.add_chid_new_table(node_id, step_symb)) { // step_symbはuint8_tの最大値，つまり255(つまり，ダミーノード)
+#ifdef POPLAR_EXTRA_STATS
+                    ++num_steps_;
+#endif
+                }
+                match -= lambda_;
+            }
+
+            if (codes_[*key.begin] == UINT8_MAX) {
+                // Update table
+                restore_codes_[num_codes_] = *key.begin;
+                codes_[*key.begin] = static_cast<uint8_t>(num_codes_++);
+                POPLAR_THROW_IF(UINT8_MAX == num_codes_, "");
+            }
+
+            if (hash_trie_.add_chid_new_table(node_id, make_symb_(*key.begin, match))) { // make_symb_は match << 8 | *key.begin
+                ++key.begin;
+
+                if constexpr (trie_type_id == trie_type_ids::BONSAI_TRIE) {
+                    return label_store_.insert_new_table(node_id, key);
+                }
+                // should not come
+                assert(false);
+            }
+
+            ++key.begin;
+        }
+
+
+        auto vptr = label_store_.compare_new_ptrs(node_id, key, 0).first;
+        return vptr ? const_cast<value_type*>(vptr) : nullptr;
+    }
+
+
     // Gets the number of registered keys.
     uint64_t size() const {
         return size_;
@@ -220,9 +285,87 @@ class map {
     }
 
     // 追加
+    // 特定のノードから、get_root()までの文字列を復元する
+    std::string restore_insert_string(uint64_t node_id) {
+        std::string insert_string = ""; // ここに文字列を格納して、新しい辞書に挿入する
+
+        // とりあえず、文字列を復元する
+        auto fs = label_store_.return_string(node_id);
+        if(fs == nullptr) return insert_string;
+        for(uint64_t i=0;; i++) {
+            if(fs[i] == 0x00) break;
+            insert_string += fs[i];
+        }
+
+        // get_root()まで、文字列を復元する
+        while(node_id != hash_trie_.get_root()) {
+            auto [parent, symb] = hash_trie_.get_parent_and_symb(node_id); // 親ノードとsymbを取得
+            auto [c, match] = restore_symb_(symb); // symbから、遷移に失敗した箇所とlabelを取得する
+
+            insert_string = c + insert_string;
+
+            uint64_t dummy_step = 0; // ダミーノードの数を数える
+            while(1) {
+                fs = label_store_.return_string(parent);
+                if(fs == nullptr) {
+                    dummy_step++;
+                    auto [tmp1, tmp2] = hash_trie_.get_parent_and_symb(parent);
+                    parent = tmp1;
+                } else {
+                    break;
+                }
+            }
+
+            match += dummy_step * lambda_; // スキップした回数分足してあげる
+
+            if(match != 0) {
+                fs = label_store_.return_string(parent);
+                std::string tmp_str = "";
+                for(uint64_t j=0; j < match; j++) {
+                    tmp_str += fs[j];
+                }
+                insert_string = tmp_str + insert_string;
+            }
+
+            node_id = parent;
+        }
+        return insert_string;
+    }
+
+    // 追加
+    // cp_orderから新しいdynpdtを構築する
+    void restructure_centroid_path_order(const std::vector<uint64_t>& cp_order, const std::vector<bool>& check_bottom) {
+        // 情報を格納するための新しい辞書を用意する
+        hash_trie_.expand_new_table();
+        label_store_.expand_ptrs();
+
+        for(auto node_id : cp_order) {
+            if(check_bottom[node_id]) { // ノード上でみた際に、一番そこの部分(起点)
+                std::string insert_key = restore_insert_string(node_id);
+                int* ptr = update_new(make_char_range(insert_key), hash_trie_.get_root(), 0);
+                *ptr = 1;
+            } else { // 起点にしたノードと比較することで、格納場所を求める
+                auto fs = label_store_.return_string(node_id);
+                if(fs == nullptr) return;
+                std::string insert_key = restore_insert_string(node_id);
+                int* ptr = update_new(make_char_range(insert_key), hash_trie_.get_root(), 0);
+                *ptr = 1;
+            }
+        }
+
+        // 最後にmoveさせて、終了
+        hash_trie_.move_table();
+        label_store_.move_ptrs();
+        hash_trie_.set_first_insert(false);
+    }
+
+    // 追加
     // plain_bonsai_trieないから、calc_topoを呼び出す
     void call_topo() {
-        hash_trie_.calc_topo(restore_codes_);
+        auto [cp_order, check_bottom] = hash_trie_.calc_topo(restore_codes_);
+
+        // 新しい辞書を作成し、登録する
+        restructure_centroid_path_order(cp_order, check_bottom);
     }
 
     void show_stats(std::ostream& os, int n = 0) const {
@@ -266,6 +409,12 @@ class map {
     uint64_t make_symb_(uint8_t c, uint64_t match) const {
         assert(codes_[c] != UINT8_MAX);
         return static_cast<uint64_t>(codes_[c]) | (match << 8);
+    }
+
+    // 追加
+    // labelからcとmatchを復元する
+    std::pair<char, uint64_t> restore_symb_(uint64_t label) const  {
+        return std::pair{char(restore_codes_[label % 256]), label/256};
     }
 
     void expand_if_needed_(uint64_t& node_id) {

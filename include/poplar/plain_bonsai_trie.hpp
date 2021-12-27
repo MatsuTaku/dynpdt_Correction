@@ -352,7 +352,7 @@ class plain_bonsai_trie {
     // 追加
     // トポロジカルソートを求める
     template <typename C>
-    void calc_topo(const C& restore_codes_) {
+    std::pair<std::vector<uint64_t>, std::vector<bool>> calc_topo(const C& restore_codes_) {
         std::cout << "--- calc_topo ---" << std::endl;
         uint64_t table_size = table_.size();
         std::cout << "table_size : " << table_size << std::endl;
@@ -377,10 +377,15 @@ class plain_bonsai_trie {
 
         // queueを使用して、一番下のものから処理していく(CPを求める)
         std::queue<uint64_t> que;
+        std::vector<bool> check_bottom(table_size, false);
         // 対象のデータを集めてくる
         for(uint64_t i=0; i < table_size; i++) {
-            if(partial_num[i] == 1) que.push(i);
+            if(partial_num[i] == 1) {
+                que.push(i);
+                check_bottom[i] = true;
+            }
         }
+        check_bottom[get_root()] = true; // 先頭文字列も底とした方が計算しやすいため
         // 数を数える
         uint64_t loop_cnt = 0;
         while(!que.empty()) { // 追加された順に処理
@@ -391,10 +396,8 @@ class plain_bonsai_trie {
             uint64_t p = node_id;
             cnt_leaf[p] += cnt_leaf[q];
             if(match != 0) all_branch[p] += cnt_leaf[q];
-            // fork_posに対して、分岐の位置に対して、葉がいくつあるのかをカウント
-            // ソートした状態を保つために、このような処理をしている
             auto [flag, pos] = BinarySearch(fork_pos[p], match);
-            if(flag) { // 同じ分岐位置のモノが既に存在していた場合
+            if(flag) {
                 fork_pos[p][pos].cnt += cnt_leaf[q];
                 fork_pos[p][pos].children.push_back({q, cnt_leaf[q]});
             } else {
@@ -408,15 +411,78 @@ class plain_bonsai_trie {
             }
             loop_cnt++;
         }
-        std::cout << "loop_cnt : " << loop_cnt << std::endl;
-        std::cout << "cnt_leaf(get_root) : " << cnt_leaf[get_root()] << std::endl;
 
         // Centroid Pathを求める
         // 大きい要素から順に処理する
         // とりあえず大きい順に配列に格納してみる
         std::vector<uint64_t> cp_order;
         find_centrpod_path(cp_order, fork_pos, get_root(), all_branch);
-        std::cout << "cp_order_size : " << cp_order.size() << std::endl;
+        return {cp_order, check_bottom};
+    }
+
+
+    bool add_chid_new_table(uint64_t& node_id, uint64_t symb) {
+        //std::cout << "symb : " << symb << std::endl;
+        assert(node_id < capa_size_.size());
+        assert(symb < symb_size_.size());
+
+        uint64_t key = make_key_(node_id, symb); // nodeとsymbからキーの作成，node_idは現在のノードID
+        assert(key != 0);
+
+        int cnt = 0;
+        for (uint64_t i = Hasher::hash(key) & capa_size_.mask();; i = right_(i)) { // iはインクリメントしているだけ，i=(i+1) mod mask，hashはハッシュ関数
+            cnt += 1;
+            if (i == 0) {
+                // table_[0] is always empty so that any table_[i] = 0 indicates to be empty.
+                continue;
+            }
+
+            if (i == get_root()) {
+                continue;
+            }
+
+            if (new_table_[i] == 0) { // 空き要素を発見
+                // this slot is empty
+                // if (size_ == max_size_) {
+                //     //cnt_compare.clear();
+                //     return false;  // needs to expand
+                // }
+
+                new_table_.set(i, key); // 値の格納
+
+                // ++size_;
+                node_id = i;
+
+                //count(cnt);
+                return true;
+            }
+
+            if (new_table_[i] == key) { // 遷移先がある
+                node_id = i;
+                return false;  // already stored
+            }
+        }
+    }
+
+    void expand_new_table() {
+        // capa_size_ = size_p2{capa_bits()+1}; // このコメントアウトを外すと，本来のexpandで使用できるようになる
+        // symb_size_ = size_p2{symb_size_.bits()};
+        new_table_ = compact_vector{capa_size_.size(), capa_size_.bits() + symb_size_.bits()};
+        // std::cout << "table_size : " << table_.size() << std::endl;
+        // std::cout << "new_table_size : " << new_table_.size() << std::endl;
+    }
+
+    void move_table() {
+        table_ = std::move(new_table_);
+    }
+
+    bool checK_first_insert() {
+        if(new_table_first_insert) return true;
+        return false;
+    }
+
+    void set_first_insert(bool flag) {
+        new_table_first_insert = flag;
     }
 
     // # of registerd nodes
@@ -469,6 +535,8 @@ class plain_bonsai_trie {
 
   private:
     compact_vector table_;
+    compact_vector new_table_;
+    bool new_table_first_insert = false;
     uint64_t size_ = 0;  // # of registered nodes
     uint64_t max_size_ = 0;  // MaxFactor% of the capacity
     size_p2 capa_size_;

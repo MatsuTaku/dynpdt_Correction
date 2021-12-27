@@ -99,6 +99,60 @@ class plain_bonsai_nlm {
         ptrs_ = std::move(new_ptrs);
     }
 
+    // new_ptrsに対する文字列比較
+    std::pair<const value_type*, uint64_t> compare_new_ptrs(uint64_t pos, const char_range& key, const uint64_t start) const {
+        assert(pos < new_ptrs_.size());
+        assert(new_ptrs_[pos]);
+
+        const uint8_t* ptr = new_ptrs_[pos].get();
+
+        if (key.empty()) {
+            return {reinterpret_cast<const value_type*>(ptr), 0};
+        }
+
+        for (uint64_t i = 0; i < key.length(); ++i) {
+            if (key[i] != ptr[start+i]) {
+                return {nullptr, start+i}; // iは間違えた箇所
+            }
+        }
+
+        return {reinterpret_cast<const value_type*>(ptr + key.length()), key.length()};
+    }
+
+    value_type* insert_new_table(uint64_t pos, const char_range& key) {
+        assert(!new_ptrs_[pos]);
+
+        ++size_;
+
+        uint64_t length = key.length();
+        new_ptrs_[pos] = std::make_unique<uint8_t[]>(length + sizeof(value_type));
+        auto ptr = new_ptrs_[pos].get(); // unique_ptr::get() : 保持しているポインタを返す
+        copy_bytes(ptr, key.begin, length); // ptrの先頭からにkeyを長さlength分，コピーする
+
+// #ifdef POPLAR_EXTRA_STATS
+//         max_length_ = std::max(max_length_, length);
+//         sum_length_ += length;
+// #endif
+
+        auto ret = reinterpret_cast<value_type*>(ptr + length);
+        *ret = static_cast<value_type>(0);
+
+        return ret;
+    }
+
+    uint8_t* return_string(uint64_t pos) const {
+        return ptrs_[pos].get();
+    }
+
+    // 配列の拡張(トポロジカルソートを使用する際に使用する)
+    void expand_ptrs() {
+        new_ptrs_.resize(ptrs_.size());
+    }
+
+    void move_ptrs() {
+        ptrs_ = std::move(new_ptrs_);
+    }
+
     uint64_t size() const {
         return size_;
     }
@@ -132,6 +186,7 @@ class plain_bonsai_nlm {
 
   private:
     std::vector<std::unique_ptr<uint8_t[]>> ptrs_;
+    std::vector<std::unique_ptr<uint8_t[]>> new_ptrs_;
     uint64_t size_ = 0;
     uint64_t label_bytes_ = 0;
 #ifdef POPLAR_EXTRA_STATS
