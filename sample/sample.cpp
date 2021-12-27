@@ -152,6 +152,80 @@ void test()
 
 } // namespace
 
+template<class It, class StringDictionary>
+void insert_by_centroid_path_order(It begin, It end, int depth, StringDictionary& dict) {
+    assert(end-begin > 0);
+    if (end-begin == 1) {
+        // Do key insertion for string dictionary
+        // dict.insert(*begin);
+        int* ptr = dict.update(*begin);
+        *ptr = 1;
+        // std::cout << "keys : " << *begin << std::endl;
+        return;
+    }
+    std::vector<std::tuple<It,It,char>> ranges;
+    auto from = begin;
+    auto to = begin;
+    // leaf character is '\0'
+    if (from->length() == depth) {
+        ranges.emplace_back(from, ++to, '\0');
+        from = to;
+    }
+    while (from != end) {
+        assert(from->length() > depth);
+        char c = (*from)[depth];
+        while (to != end and (*to)[depth] == c) {
+            ++to;
+        }
+        ranges.emplace_back(from, to, c);
+        from = to;
+    }
+    std::sort(ranges.begin(), ranges.end(), [](auto l, auto r) {
+        auto [fl,tl,cl] = l;
+        auto [fr,tr,cr] = r;
+        return tl-fl > tr-fr;
+    });
+    for (auto [f,t,c] : ranges) {
+        insert_by_centroid_path_order(f, t, depth+1, dict);
+        // insert_by_centroid_path_order(f, t, depth+1);
+    }
+}
+
+template <class It>
+void centroid_path(It begin, It end, int depth) {
+    assert(end-begin > 0);
+    if (end-begin == 1) {
+        // Do key insertion for string dictionary
+        std::cout << "keys : " << *begin << std::endl;
+        return;
+    }
+    std::vector<std::tuple<It,It,char>> ranges;
+    auto from = begin;
+    auto to = begin;
+    // leaf character is '\0'
+    if (from->length() == depth) {
+        ranges.emplace_back(from, ++to, '\0');
+        from = to;
+    }
+    while (from != end) {
+        assert(from->length() > depth);
+        char c = (*from)[depth];
+        while (to != end and (*to)[depth] == c) {
+            ++to;
+        }
+        ranges.emplace_back(from, to, c);
+        from = to;
+    }
+    std::sort(ranges.begin(), ranges.end(), [](auto l, auto r) {
+        auto [fl,tl,cl] = l;
+        auto [fr,tr,cr] = r;
+        return tl-fl > tr-fr;
+    });
+    for (auto [f,t,c] : ranges) {
+        centroid_path(f, t, depth+1);
+    }
+}
+
 int main() {
     FileRead();
     const auto num_keys = static_cast<int>(keys.size());
@@ -166,6 +240,11 @@ int main() {
         int* ptr = map.update(keys[i]);
         *ptr = 1;
     }
+
+    // Centroid Path順に登録する場合は、上をコメントアウトして、下を使用
+    // std::sort(keys.begin(), keys.end());
+    // keys.erase(std::unique(keys.begin(), keys.end()), keys.end());
+    // insert_by_centroid_path_order(keys.begin(), keys.end(), 0, map);
 
     // 追加
     // ここで呼び出す
