@@ -151,7 +151,7 @@ class plain_bonsai_nlm {
 
     void move_ptrs() {
         std::swap(ptrs_, new_ptrs_);
-        new_ptrs_ = {};
+        new_ptrs_ = decltype(new_ptrs_)();
     }
 
     uint64_t size() const {
