@@ -239,8 +239,10 @@ class plain_bonsai_trie {
     };
 
     // cpを求めるための関数
-    template <class CP, class FP, class AB>
-    void find_centrpod_path(CP& cp, FP& fp, uint64_t node_id, const AB& all_branch) {
+    void find_centrpod_path(std::vector<uint64_t>& cp,
+                            std::vector<std::vector<info_fp>>& fp,
+                            uint64_t node_id,
+                            const std::vector<uint64_t>& all_branch) {
         if(fp[node_id].size() == 0) { // 一番まで、たどり着いた時の処理
             // cp.push_back(node_id);
             return;
@@ -329,8 +331,7 @@ class plain_bonsai_trie {
     }
 
     // 二分探索の実装(lower_bound)
-    template<class Data>
-    std::pair<bool, uint64_t> BinarySearch(const Data& data, uint64_t match) {
+    std::pair<bool, uint64_t> BinarySearch(const std::vector<info_fp>& data, uint64_t match) {
         uint64_t size = data.size();
         if(size == 0) return {false, 0};
         int64_t left = 0;
@@ -351,8 +352,7 @@ class plain_bonsai_trie {
 
     // 追加
     // トポロジカルソートを求める
-    template <typename C>
-    std::pair<std::vector<uint64_t>, std::vector<bool>> calc_topo(const C& restore_codes_) {
+    std::pair<std::vector<uint64_t>, std::vector<bool>> calc_topo(const std::array<uint8_t, 256>& restore_codes_) {
         std::cout << "--- calc_topo ---" << std::endl;
         uint64_t table_size = table_.size();
         std::cout << "table_size : " << table_size << std::endl;
