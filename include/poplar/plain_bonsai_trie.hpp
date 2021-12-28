@@ -473,7 +473,8 @@ class plain_bonsai_trie {
     }
 
     void move_table() {
-        table_ = std::move(new_table_);
+        std::swap(table_, new_table_);
+        new_table_ = {};
     }
 
     bool checK_first_insert() {
